@@ -16,6 +16,7 @@ type Config struct {
 	AuthServiceURL string
 	Debug          bool
 	Port           string
+	EnvFile        string
 }
 
 type Option func(*Config)
@@ -50,22 +51,30 @@ func WithPort(port string) Option {
 	}
 }
 
-func NewConfig(opts ...Option) (*Config, error) {
-	envs, err := loadEnv()
-	if err != nil {
-		return nil, fmt.Errorf("failed to load environment: %w", err)
+func WithEnvFile(file string) Option {
+	return func(c *Config) {
+		if file != "" {
+			c.EnvFile = file
+		}
 	}
+}
 
-	c := &Config{
-		DatabaseURL:    getEnvWithFallback(envs, "DATABASE_URL", ""),
-		AuthServiceURL: getEnvWithFallback(envs, "AUTH_SERVICE_URL", "http://localhost:8080"),
-		Debug:          getBoolEnvWithFallback(envs, "DEBUG", false),
-		Port:           getEnvWithFallback(envs, "PORT", "8092"),
-	}
+func NewConfig(opts ...Option) (*Config, error) {
+	c := &Config{}
 
 	for _, opt := range opts {
 		opt(c)
 	}
+
+	envs, err := loadEnv(c.EnvFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load environment: %w", err)
+	}
+
+	c.DatabaseURL = getEnvWithFallback(envs, "DATABASE_URL", c.DatabaseURL)
+	c.AuthServiceURL = getEnvWithFallback(envs, "AUTH_SERVICE_URL", c.AuthServiceURL)
+	c.Debug = getBoolEnvWithFallback(envs, "DEBUG", c.Debug)
+	c.Port = getEnvWithFallback(envs, "PORT", c.Port)
 
 	if err := c.validate(); err != nil {
 		return nil, err
@@ -104,12 +113,14 @@ func getBoolEnvWithFallback(envs map[string]string, key string, fallback bool) b
 	return boolValue
 }
 
-func loadEnv() (map[string]string, error) {
-	envFile := os.Getenv("ENV_FILE")
+func loadEnv(envFile string) (map[string]string, error) {
 	if envFile == "" {
-		_, b, _, _ := runtime.Caller(0)
-		basepath := filepath.Dir(b)
-		envFile = filepath.Join(basepath, "../..", ".env")
+		envFile = os.Getenv("ENV_FILE")
+		if envFile == "" {
+			_, b, _, _ := runtime.Caller(0)
+			basepath := filepath.Dir(b)
+			envFile = filepath.Join(basepath, "../..", ".env")
+		}
 	}
 
 	envs, err := godotenv.Read(envFile)
